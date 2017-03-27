@@ -19,6 +19,13 @@
 bin=$(dirname "${BASH_SOURCE-$0}")
 bin=$(cd "${bin}">/dev/null; pwd)
 
+#export JAVA_HOME=/usr/java/jdk1.7.0_67-cloudera
+#export SPARK_HOME=/opt/cloudera/parcels/CDH/lib/spark
+#export HADOOP_CONF_DIR=/etc/hive/conf
+
+NOVA_ALT_PATH=true
+
+
 function usage() {
     echo "usage) $0 -p <port> -d <interpreter dir to load> -l <local interpreter repo dir to load> -g <interpreter group name>"
 }
@@ -43,12 +50,25 @@ while getopts "hp:d:l:v:u:g:" o; do
             getZeppelinVersion
             ;;
         u)
-            ZEPPELIN_IMPERSONATE_USER="${OPTARG}"
-            if [[ -z "$ZEPPELIN_IMPERSONATE_CMD" ]]; then
-              ZEPPELIN_IMPERSONATE_RUN_CMD=`echo "ssh ${ZEPPELIN_IMPERSONATE_USER}@localhost" `
-            else
-              ZEPPELIN_IMPERSONATE_RUN_CMD=$(eval "echo ${ZEPPELIN_IMPERSONATE_CMD} ")
-            fi
+           # Now we need user even if we don't want to run the impersonation code.  
+		   # We'll need it for the principal name on the spark-submit line
+			
+			LONGUSER="${OPTARG}"
+			SHORTUSER=${OPTARG%@*}
+			KEYTAB="/home/${SHORTUSER}/.keytab"
+
+			
+			if [[ -n "$NOVA_ALT_PATH" ]] && [[ "${INTERPRETER_ID}" != "spark" ]]; then
+			
+				eval "kinit ${OPTARG} -k -t ${KEYTAB}"
+				ZEPPELIN_IMPERSONATE_USER="${OPTARG}"
+				
+				if [[ -z "$ZEPPELIN_IMPERSONATE_CMD" ]]; then
+				  ZEPPELIN_IMPERSONATE_RUN_CMD=`echo "ssh ${SHORTUSER}@cedgedev01" `
+				else
+				  ZEPPELIN_IMPERSONATE_RUN_CMD=$(eval "echo ${ZEPPELIN_IMPERSONATE_CMD} ")
+				fi
+			fi
             ;;
         g)
             INTERPRETER_GROUP_NAME=${OPTARG}
@@ -203,11 +223,20 @@ if [[ ! -z "$ZEPPELIN_IMPERSONATE_USER" ]]; then
 fi
 
 if [[ -n "${SPARK_SUBMIT}" ]]; then
-    if [[ -n "$ZEPPELIN_IMPERSONATE_USER" ]] && [[ "$ZEPPELIN_IMPERSONATE_SPARK_PROXY_USER" != "false" ]];  then
-       INTERPRETER_RUN_COMMAND+=' '` echo ${SPARK_SUBMIT} --class ${ZEPPELIN_SERVER} --driver-class-path \"${ZEPPELIN_INTP_CLASSPATH_OVERRIDES}:${CLASSPATH}\" --driver-java-options \"${JAVA_INTP_OPTS}\" ${SPARK_SUBMIT_OPTIONS} --proxy-user ${ZEPPELIN_IMPERSONATE_USER} ${SPARK_APP_JAR} ${PORT}`
-    else
-       INTERPRETER_RUN_COMMAND+=' '` echo ${SPARK_SUBMIT} --class ${ZEPPELIN_SERVER} --driver-class-path \"${ZEPPELIN_INTP_CLASSPATH_OVERRIDES}:${CLASSPATH}\" --driver-java-options \"${JAVA_INTP_OPTS}\" ${SPARK_SUBMIT_OPTIONS} ${SPARK_APP_JAR} ${PORT}`
-    fi
+
+	if [[ -n "$NOVA_ALT_PATH" ]]; then
+	
+		INTERPRETER_RUN_COMMAND+=' '` echo ${SPARK_SUBMIT} --class ${ZEPPELIN_SERVER} --driver-class-path \"${ZEPPELIN_INTP_CLASSPATH_OVERRIDES}:${CLASSPATH}\" --driver-java-options \"${JAVA_INTP_OPTS}\" --conf spark.yarn.principal=${LONGUSER} --conf spark.yarn.keytab=${KEYTAB} ${SPARK_SUBMIT_OPTIONS} ${SPARK_APP_JAR} ${PORT}`
+	else
+	
+		if [[ -n "$ZEPPELIN_IMPERSONATE_USER" ]] && [[ "$ZEPPELIN_IMPERSONATE_SPARK_PROXY_USER" != "false" ]];  then
+			INTERPRETER_RUN_COMMAND+=' '` echo ${SPARK_SUBMIT} --class ${ZEPPELIN_SERVER} --driver-class-path \"${ZEPPELIN_INTP_CLASSPATH_OVERRIDES}:${CLASSPATH}\" --driver-java-options \"${JAVA_INTP_OPTS}\" ${SPARK_SUBMIT_OPTIONS} --proxy-user ${ZEPPELIN_IMPERSONATE_USER} ${SPARK_APP_JAR} ${PORT}`
+		else
+			INTERPRETER_RUN_COMMAND+=' '` echo ${SPARK_SUBMIT} --class ${ZEPPELIN_SERVER} --driver-class-path \"${ZEPPELIN_INTP_CLASSPATH_OVERRIDES}:${CLASSPATH}\" --driver-java-options \"${JAVA_INTP_OPTS}\" ${SPARK_SUBMIT_OPTIONS} ${SPARK_APP_JAR} ${PORT}`
+		fi
+	fi
+	
+	
 else
     INTERPRETER_RUN_COMMAND+=' '` echo ${ZEPPELIN_RUNNER} ${JAVA_INTP_OPTS} ${ZEPPELIN_INTP_MEM} -cp ${ZEPPELIN_INTP_CLASSPATH_OVERRIDES}:${CLASSPATH} ${ZEPPELIN_SERVER} ${PORT} `
 fi
