@@ -19,11 +19,8 @@
 bin=$(dirname "${BASH_SOURCE-$0}")
 bin=$(cd "${bin}">/dev/null; pwd)
 
-#export JAVA_HOME=/usr/java/jdk1.7.0_67-cloudera
-#export SPARK_HOME=/opt/cloudera/parcels/CDH/lib/spark
-#export HADOOP_CONF_DIR=/etc/hive/conf
 
-NOVA_ALT_PATH=true
+NOVA_KTAB_PATH=true
 
 
 function usage() {
@@ -57,10 +54,9 @@ while getopts "hp:d:l:v:u:g:" o; do
 			SHORTUSER=${OPTARG%@*}
 			KEYTAB="/home/${SHORTUSER}/.keytab"
 
+			if [[ -n "$NOVA_KTAB_PATH" ]] && [[ "${INTERPRETER_ID}" != "spark" ]]; then
 			
-			if [[ -n "$NOVA_ALT_PATH" ]] && [[ "${INTERPRETER_ID}" != "spark" ]]; then
-			
-				eval "kinit ${OPTARG} -k -t ${KEYTAB}"
+				eval "kinit ${SHORTUSER} -k -t ${KEYTAB}"
 				ZEPPELIN_IMPERSONATE_USER="${OPTARG}"
 				
 				if [[ -z "$ZEPPELIN_IMPERSONATE_CMD" ]]; then
@@ -224,7 +220,7 @@ fi
 
 if [[ -n "${SPARK_SUBMIT}" ]]; then
 
-	if [[ -n "$NOVA_ALT_PATH" ]]; then
+	if [[ -n "$NOVA_KTAB_PATH" ]]; then
 	
 		INTERPRETER_RUN_COMMAND+=' '` echo ${SPARK_SUBMIT} --class ${ZEPPELIN_SERVER} --driver-class-path \"${ZEPPELIN_INTP_CLASSPATH_OVERRIDES}:${CLASSPATH}\" --driver-java-options \"${JAVA_INTP_OPTS}\" --conf spark.yarn.principal=${LONGUSER} --conf spark.yarn.keytab=${KEYTAB} ${SPARK_SUBMIT_OPTIONS} ${SPARK_APP_JAR} ${PORT}`
 	else
